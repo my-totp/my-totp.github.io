@@ -1,0 +1,31 @@
+{
+  "name": "totp-web",
+  "version": "1.0.0",
+  "description": "Offline TOTP authenticator web app",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc && vite build",
+    "type-check": "vue-tsc --noEmit",
+    "preview": "vite preview",
+    "setup-ssl": "mkdir -p certs && mkcert -install && mkcert -cert-file certs/localhost.pem -key-file certs/localhost-key.pem localhost 127.0.0.1 ::1"
+  },
+  "dependencies": {
+    "lucide-vue-next": "^0.294.0",
+    "otpauth": "^9.2.0",
+    "qr-scanner": "^1.4.2",
+    "vue": "^3.4.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^4.5.0",
+    "@vue/tsconfig": "^0.7.0",
+    "autoprefixer": "^10.4.0",
+    "postcss": "^8.4.0",
+    "tailwindcss": "^3.4.0",
+    "typescript": "^5.8.3",
+    "vite": "^5.0.0",
+    "vite-plugin-pwa": "^0.17.0",
+    "vue-tsc": "3.0.0-alpha.8"
+  },
+  "packageManager": "pnpm@9.15.4+sha256.9bee59c7313a216722c079c1e22160dea7f88df4e0c3450b1d7b01b882336c6a"
+}
