@@ -10,13 +10,9 @@
       <Lock :size="20" />
     </button>
 
-    <h1 class="text-3xl sm:text-2xl font-semibold mb-2">🔐 TOTP Authenticator</h1>
+    <h1 class="text-3xl sm:text-2xl font-semibold mb-2">🔐 MY TOTP</h1>
     <p class="opacity-90 text-base">
       Secure offline two-factor authentication
-      <span v-if="isEncrypted" class="inline-flex items-center gap-1 ml-2 text-sm">
-        <Shield :size="14" />
-        Encrypted
-      </span>
     </p>
   </header>
 </template>
@@ -26,10 +22,6 @@ import { Lock, Shield } from 'lucide-vue-next'
 
 defineProps({
   showLockButton: {
-    type: Boolean,
-    default: false
-  },
-  isEncrypted: {
     type: Boolean,
     default: false
   }

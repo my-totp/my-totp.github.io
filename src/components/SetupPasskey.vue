@@ -92,18 +92,14 @@ const handleSetupPasskey = async () => {
     isSettingUp.value = true
     error.value = ''
 
-    // Create the passkey
-    const credential = await createPasskey()
+    // Create the passkey and get key material in one step
+    const result = await createPasskey()
 
     // Store credential info (not the actual private key)
-    storePasskeyCredential(credential)
-
-    // Immediately authenticate with the new passkey to get key material
-    const { authenticateWithPasskey } = await import('../utils/webauthn')
-    const keyMaterial = await authenticateWithPasskey(credential.id)
+    storePasskeyCredential(result.credential)
 
     // Emit the setup event with both credential info and key material
-    emit('setup', { credential, keyMaterial })
+    emit('setup', { credential: result.credential, keyMaterial: result.keyMaterial })
 
   } catch (err) {
     console.error('Passkey setup failed:', err)

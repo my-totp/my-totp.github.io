@@ -4,36 +4,7 @@
  */
 
 import { deriveKeyFromPasskey } from './webauthn'
-
-// Convert string to ArrayBuffer
-function stringToArrayBuffer(str: string): Uint8Array {
-  return new TextEncoder().encode(str)
-}
-
-// Convert ArrayBuffer to string
-function arrayBufferToString(buffer: ArrayBuffer): string {
-  return new TextDecoder().decode(buffer)
-}
-
-// Convert ArrayBuffer to base64
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer)
-  let binary = ''
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i])
-  }
-  return btoa(binary)
-}
-
-// Convert base64 to ArrayBuffer
-function base64ToArrayBuffer(base64: string): ArrayBuffer {
-  const binary = atob(base64)
-  const bytes = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i)
-  }
-  return bytes.buffer
-}
+import { arrayBufferToBase64, base64ToArrayBuffer } from './encoding'
 
 /**
  * Encrypt data using passkey-derived key
@@ -51,7 +22,7 @@ export async function encryptData(data: string, keyMaterial: ArrayBuffer): Promi
     const key = await deriveKeyFromPasskey(keyMaterial, salt)
 
     // Encrypt data
-    const dataBuffer = stringToArrayBuffer(data)
+    const dataBuffer = new TextEncoder().encode(data)
     const encryptedBuffer = await crypto.subtle.encrypt(
       {
         name: 'AES-GCM',
@@ -104,19 +75,9 @@ export async function decryptData(encryptedData: string, keyMaterial: ArrayBuffe
       encrypted
     )
 
-    return arrayBufferToString(decryptedBuffer)
+    return new TextDecoder().decode(decryptedBuffer)
   } catch (error) {
     console.error('Passkey decryption failed:', error)
     throw new Error('Failed to decrypt data with passkey - authentication failed or corrupted data')
   }
-}
-
-/**
- * Check if Web Crypto API is available
- * @returns {boolean} True if crypto is available
- */
-export function isCryptoAvailable(): boolean {
-  return typeof crypto !== 'undefined' &&
-         typeof crypto.subtle !== 'undefined' &&
-         typeof crypto.getRandomValues !== 'undefined'
 }

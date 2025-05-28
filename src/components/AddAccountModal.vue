@@ -27,16 +27,7 @@
         </button>
 
         <button
-          v-if="showScanner"
-          @click="stopScanning"
-          class="w-full py-4 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-semibold transition-colors duration-200 flex items-center justify-center gap-2 mb-4"
-        >
-          <CameraOff :size="20" />
-          Stop Camera
-        </button>
-
-        <button
-          @click="showManualForm = true"
+          @click="switchToManualForm"
           class="w-full py-4 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-semibold transition-colors duration-200 flex items-center justify-center gap-2"
         >
           <Edit :size="20" />
@@ -103,23 +94,13 @@
             </div>
           </div>
 
-          <div class="grid grid-cols-2 gap-4">
-            <button
-              type="button"
-              @click="showManualForm = false"
-              class="py-3 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-semibold transition-colors duration-200 flex items-center justify-center gap-2"
-            >
-              <ArrowLeft :size="20" />
-              Back
-            </button>
-            <button
-              type="submit"
-              class="py-3 px-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl font-semibold transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-indigo-500/30 flex items-center justify-center gap-2"
-            >
-              <Plus :size="20" />
-              Add Account
-            </button>
-          </div>
+          <button
+            type="submit"
+            class="w-full py-3 px-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl font-semibold transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-indigo-500/30 flex items-center justify-center gap-2"
+          >
+            <Plus :size="20" />
+            Add Account
+          </button>
         </form>
       </div>
     </div>
@@ -129,7 +110,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import QrScanner from 'qr-scanner'
-import { Camera, CameraOff, Edit, ArrowLeft, Plus } from 'lucide-vue-next'
+import { Camera, Edit, Plus } from 'lucide-vue-next'
 import type { ModalMode, TOTPAccount } from '../types'
 
 interface Props {
@@ -221,6 +202,11 @@ const stopScanning = (): void => {
     qrScanner.value = null
   }
   showScanner.value = false
+}
+
+const switchToManualForm = (): void => {
+  stopScanning()
+  showManualForm.value = true
 }
 
 const handleScanResult = (data: string): void => {

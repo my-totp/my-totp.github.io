@@ -2,8 +2,7 @@
   <div id="app" class="min-h-screen flex flex-col bg-gradient-to-br from-indigo-400 via-purple-400 to-purple-600">
     <div class="max-w-lg mx-auto p-5 flex-1 sm:p-4">
       <AppHeader
-        :showLockButton="isUnlocked && encryptionEnabled && hasPasskeyConfigured"
-        :isEncrypted="encryptionEnabled"
+        :showLockButton="isUnlocked && isCryptoAvailable && hasPasskeyConfigured"
         @lock="handleLockStorage"
       />
 
@@ -26,12 +25,17 @@
       <div v-else-if="shouldShowUnlockState" class="bg-white rounded-2xl p-6 mb-5 shadow-xl backdrop-blur-sm">
         <div class="text-center py-10 px-5 text-slate-500">
           <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg class="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg v-if="!isUnlocking" class="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10"></path>
             </svg>
+            <div v-else class="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
           </div>
-          <h3 class="text-lg font-medium mb-2">Unlock with Passkey</h3>
-          <p class="mb-4">Use your biometric authentication to access your TOTP accounts</p>
+          <h3 class="text-lg font-medium mb-2">
+            {{ isUnlocking ? 'Authenticating...' : 'Unlock with Passkey' }}
+          </h3>
+          <p class="mb-4">
+            {{ isUnlocking ? 'Please complete biometric authentication' : 'Use your biometric authentication to access your TOTP accounts' }}
+          </p>
 
           <div v-if="unlockError" class="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
             <p class="text-red-600 text-sm">{{ unlockError }}</p>
@@ -60,7 +64,15 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
               </svg>
               <div class="text-sm text-blue-800 text-left">
-                <p>Touch your fingerprint sensor, Face ID, or use your device's PIN to unlock.</p>
+                <p v-if="isUnlocking && isPWA">
+                  PWA mode detected. Authentication prompt should appear automatically.
+                </p>
+                <p v-else>
+                  Touch your fingerprint sensor, Face ID, or use your device's PIN to unlock.
+                </p>
+                <p v-if="isPWA && !isUnlocking" class="mt-1 text-xs text-blue-600">
+                  Running in PWA mode - authentication will be automatic next time.
+                </p>
               </div>
             </div>
           </div>
@@ -70,7 +82,7 @@
       <!-- Empty State - Only show when no accounts and unlocked -->
       <EmptyState
         v-else-if="accounts.length === 0"
-        @openChoice="openChoiceModal"
+        @openChoice="openScanner"
       />
 
       <!-- TOTP Accounts List -->
@@ -93,14 +105,6 @@
         @openScanner="openScanner"
       />
 
-      <!-- Choice Modal -->
-      <ChoiceModal
-        :show="showChoiceModal"
-        @close="showChoiceModal = false"
-        @openScanner="openScanner"
-        @openManual="openManualInput"
-      />
-
       <!-- Add Account Modal -->
       <AddAccountModal
         v-if="showAddModal"
@@ -121,29 +125,28 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed, type Ref } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import AppHeader from './components/AppHeader.vue'
 import EmptyState from './components/EmptyState.vue'
 import SearchBar from './components/SearchBar.vue'
 import AccountsList from './components/AccountsList.vue'
 import FloatingActionButton from './components/FloatingActionButton.vue'
-import ChoiceModal from './components/ChoiceModal.vue'
 import DuplicateAccountModal from './components/DuplicateAccountModal.vue'
 import AddAccountModal from './components/AddAccountModal.vue'
 import SetupPasskey from './components/SetupPasskey.vue'
-import { useSecureStorage, unlockStorage, lockStorage, hasEncryptedData, initializeEncryption } from './composables/useSecureStorage'
-import { hasPasskeySetup } from './utils/webauthn'
-import { isCryptoAvailable } from './utils/crypto'
+import { useSecureStorage, unlockStorage, lockStorage } from './composables/useSecureStorage'
+import { authenticateWithPasskey, getStoredPasskeyCredential } from './utils/webauthn'
+import { isPWAMode } from './utils/pwa'
 import type { TOTPAccount, ModalMode } from './types'
 
 const showAddModal = ref<boolean>(false)
-const showChoiceModal = ref<boolean>(false)
 const showDuplicateModal = ref<boolean>(false)
 const modalMode = ref<ModalMode>('scanner')
 const searchQuery = ref<string>('')
 const hasPasskeyConfigured = ref<boolean>(false)
 const isUnlocking = ref<boolean>(false)
 const unlockError = ref<string>('')
+const isPWA = ref<boolean>(false)
 const duplicateAccount = ref<{
   existing: TOTPAccount
   new: TOTPAccount
@@ -154,8 +157,7 @@ const {
   data: accounts,
   isLoading,
   isUnlocked,
-  encryptionEnabled,
-  migrateToEncrypted
+  isCryptoAvailable,
 } = useSecureStorage<TOTPAccount[]>('totp-accounts', [])
 
 // Filter accounts based on search query
@@ -176,7 +178,7 @@ const filteredAccounts = computed(() => {
 const shouldShowUnlockState = computed(() => {
   return hasPasskeyConfigured.value &&
          !isUnlocked.value &&
-         encryptionEnabled.value
+         isCryptoAvailable.value
 })
 
 const addAccount = (account: Omit<TOTPAccount, 'id' | 'addedAt'>) => {
@@ -233,22 +235,9 @@ const addDuplicateAnyway = (): void => {
 }
 
 const deleteAccount = (accountId: string): void => {
-  // Don't allow deleting accounts if passkey is not configured
-  if (!hasPasskeyConfigured.value) {
-    return
-  }
-
   if (confirm('Are you sure you want to delete this account?')) {
     accounts.value = accounts.value.filter((account: TOTPAccount) => account.id !== accountId)
   }
-}
-
-const openChoiceModal = (): void => {
-  // Don't allow adding accounts if passkey is not configured
-  if (!hasPasskeyConfigured.value) {
-    return
-  }
-  showChoiceModal.value = true
 }
 
 const openScanner = (): void => {
@@ -256,20 +245,9 @@ const openScanner = (): void => {
   if (!hasPasskeyConfigured.value) {
     return
   }
-  showChoiceModal.value = false
   modalMode.value = 'scanner'
   showAddModal.value = true
   // The modal will auto-start scanning based on the mode
-}
-
-const openManualInput = (): void => {
-  // Don't allow adding accounts if passkey is not configured
-  if (!hasPasskeyConfigured.value) {
-    return
-  }
-  showChoiceModal.value = false
-  modalMode.value = 'manual'
-  showAddModal.value = true
 }
 
 const copyToClipboard = async (text: string): Promise<void> => {
@@ -287,7 +265,6 @@ const handleDirectUnlock = async (): Promise<void> => {
     isUnlocking.value = true
     unlockError.value = ''
 
-    const { authenticateWithPasskey, getStoredPasskeyCredential } = await import('./utils/webauthn')
     const storedCredential = getStoredPasskeyCredential()
     const keyMaterial = await authenticateWithPasskey(storedCredential?.id)
 
@@ -300,20 +277,13 @@ const handleDirectUnlock = async (): Promise<void> => {
   }
 }
 
-
-
 const handlePasskeySetup = async (setupResult: { credential: any, keyMaterial: ArrayBuffer }): Promise<void> => {
   try {
     // Unlock storage with the key material from passkey setup
     await unlockStorage(setupResult.keyMaterial)
 
-    // Now migrate existing data to encrypted format
-    await migrateToEncrypted()
-
     // Update the passkey configured status
     hasPasskeyConfigured.value = true
-
-
   } catch (err) {
     console.error('Failed to set up passkey:', err)
     throw new Error('Failed to set up passkey encryption')
@@ -326,20 +296,30 @@ const handleLockStorage = (): void => {
 
 // Check encryption status on mount
 onMounted(async () => {
-  // Initialize encryption based on browser capability
-  initializeEncryption()
+  // Check if we're in PWA mode
+  isPWA.value = isPWAMode()
 
-  if (!isCryptoAvailable()) {
+  if (!isCryptoAvailable.value) {
     console.warn('Web Crypto API not available, encryption disabled')
     return
   }
 
   // Check if passkey is configured
-  hasPasskeyConfigured.value = hasPasskeySetup()
+  hasPasskeyConfigured.value = getStoredPasskeyCredential() !== null
 
   if (!hasPasskeyConfigured.value) {
     // No passkey configured, the SetupPasskey component will be shown automatically
     // Don't allow any other actions until passkey is set up
+    return
+  }
+
+  // If passkey is configured and we're in PWA mode, automatically trigger authentication
+  if (hasPasskeyConfigured.value && isCryptoAvailable.value && !isUnlocked.value && isPWA.value) {
+    console.log('PWA mode detected, automatically triggering passkey authentication')
+    // Add a small delay to ensure UI is ready
+    setTimeout(() => {
+      handleDirectUnlock()
+    }, 500)
   }
   // If passkey is configured but storage is locked, the shouldShowUnlockState computed will handle showing the unlock UI
   // If passkey is configured and unlocked, proceed normally

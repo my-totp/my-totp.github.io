@@ -1,22 +1,9 @@
 import { ref, watch, type Ref } from 'vue'
-import { encryptData, decryptData, isCryptoAvailable } from '../utils/crypto'
-import { hasPasskeySetup } from '../utils/webauthn'
+import { encryptData, decryptData } from '../utils/crypto'
 
 // Global state for passkey authentication
 const isUnlocked: Ref<boolean> = ref(false)
 const currentPasskeyKeyMaterial: Ref<ArrayBuffer | null> = ref(null)
-const encryptionEnabled: Ref<boolean> = ref(true)
-
-// Check user's encryption preference from localStorage
-const getEncryptionPreference = (): boolean => {
-  const preference = localStorage.getItem('encryption-preference')
-  return preference !== 'disabled'
-}
-
-// Set user's encryption preference
-const setEncryptionPreference = (enabled: boolean): void => {
-  localStorage.setItem('encryption-preference', enabled ? 'enabled' : 'disabled')
-}
 
 interface SecureStorageReturn<T> {
   data: Ref<T>
@@ -25,10 +12,9 @@ interface SecureStorageReturn<T> {
   loadData: () => Promise<void>
   saveData: () => Promise<void>
   isDataEncrypted: () => boolean
-  migrateToEncrypted: () => Promise<void>
   isUnlocked: Ref<boolean>
   currentPasskeyKeyMaterial: Ref<ArrayBuffer | null>
-  encryptionEnabled: Ref<boolean>
+  isCryptoAvailable: Ref<boolean>
 }
 
 /**
@@ -41,9 +27,11 @@ export function useSecureStorage<T = any>(key: string, defaultValue: T = null as
   const data = ref<T>(defaultValue)
   const isLoading = ref<boolean>(false)
   const error = ref<string | null>(null)
+  const isCryptoAvailable: Ref<boolean> = ref(false)
 
-  // Check if encryption is available and enabled
-  const canUseEncryption = isCryptoAvailable() && encryptionEnabled.value
+  isCryptoAvailable.value = typeof crypto !== 'undefined' &&
+                              typeof crypto.subtle !== 'undefined' &&
+                              typeof crypto.getRandomValues !== 'undefined'
 
   /**
    * Load data from localStorage (with decryption if needed)
@@ -62,7 +50,7 @@ export function useSecureStorage<T = any>(key: string, defaultValue: T = null as
       // Check if data is encrypted
       const isEncrypted = stored.startsWith('encrypted:')
 
-      if (isEncrypted && canUseEncryption && currentPasskeyKeyMaterial.value) {
+      if (isEncrypted && isCryptoAvailable.value && currentPasskeyKeyMaterial.value) {
         // Decrypt with passkey
         const encryptedData = stored.substring(10) // Remove 'encrypted:' prefix
         try {
@@ -102,7 +90,7 @@ export function useSecureStorage<T = any>(key: string, defaultValue: T = null as
 
       const jsonData = JSON.stringify(data.value)
 
-      if (canUseEncryption && currentPasskeyKeyMaterial.value) {
+      if (isCryptoAvailable.value && currentPasskeyKeyMaterial.value) {
         // Encrypt with passkey
         const encryptedData = await encryptData(jsonData, currentPasskeyKeyMaterial.value)
         localStorage.setItem(key, `encrypted:${encryptedData}`)
@@ -127,22 +115,6 @@ export function useSecureStorage<T = any>(key: string, defaultValue: T = null as
     return Boolean(stored && stored.startsWith('encrypted:'))
   }
 
-  /**
-   * Migrate plain text data to encrypted format
-   */
-  const migrateToEncrypted = async () => {
-    if (!canUseEncryption || !currentPasskeyKeyMaterial.value) {
-      throw new Error('Cannot migrate: encryption not available or no passkey authentication')
-    }
-
-    const stored = localStorage.getItem(key)
-    if (stored && !stored.startsWith('encrypted:')) {
-      // Data exists and is not encrypted, migrate it
-      data.value = JSON.parse(stored)
-      await saveData() // This will encrypt it using the passkey
-    }
-  }
-
   // Watch for data changes and auto-save
   watch(data, saveData, { deep: true })
 
@@ -160,11 +132,10 @@ export function useSecureStorage<T = any>(key: string, defaultValue: T = null as
     loadData,
     saveData,
     isDataEncrypted,
-    migrateToEncrypted,
     // Expose global state
     isUnlocked,
     currentPasskeyKeyMaterial,
-    encryptionEnabled
+    isCryptoAvailable
   }
 }
 
@@ -225,17 +196,4 @@ export function hasEncryptedData(): boolean {
     }
   }
   return false
-}
-
-/**
- * Initialize encryption based on user preference
- */
-export function initializeEncryption(): boolean {
-  const preference = getEncryptionPreference()
-  if (isCryptoAvailable() && preference) {
-    encryptionEnabled.value = true
-  } else {
-    encryptionEnabled.value = false
-  }
-  return encryptionEnabled.value
 }

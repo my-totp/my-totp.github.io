@@ -3,38 +3,11 @@
  * Uses WebAuthn API for passwordless authentication and key derivation
  */
 
+import { arrayBufferToBase64url, base64urlToArrayBuffer } from './encoding'
+
 // Generate a random challenge
 function generateChallenge(): Uint8Array {
   return crypto.getRandomValues(new Uint8Array(32))
-}
-
-// Convert ArrayBuffer to base64url
-function arrayBufferToBase64url(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer)
-  let binary = ''
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i])
-  }
-  return btoa(binary)
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=/g, '')
-}
-
-// Convert base64url to ArrayBuffer
-function base64urlToArrayBuffer(base64url: string): ArrayBuffer {
-  // Add padding if needed
-  let base64 = base64url.replace(/-/g, '+').replace(/_/g, '/')
-  while (base64.length % 4) {
-    base64 += '='
-  }
-
-  const binary = atob(base64)
-  const bytes = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i)
-  }
-  return bytes.buffer
 }
 
 // Check if WebAuthn is supported
@@ -56,24 +29,32 @@ export async function isPasskeySupported(): Promise<boolean> {
   }
 }
 
-export interface PasskeyCredential {
+interface PasskeyCredential {
   id: string
   publicKey: ArrayBuffer
   userHandle: string
 }
 
+interface PasskeyCreationResult {
+  credential: PasskeyCredential
+  keyMaterial: ArrayBuffer
+}
+
 /**
- * Create a new passkey credential with PRF extension
+ * Create a new passkey credential with PRF extension and return both credential info and key material
  * @param {string} username - Username for the credential
- * @returns {Promise<PasskeyCredential>} Created credential info
+ * @returns {Promise<PasskeyCreationResult>} Created credential info and key material
  */
-export async function createPasskey(username: string = 'TOTP User'): Promise<PasskeyCredential> {
+export async function createPasskey(username: string = 'TOTP User'): Promise<PasskeyCreationResult> {
   if (!isWebAuthnSupported()) {
     throw new Error('WebAuthn is not supported in this browser')
   }
 
   const challenge = generateChallenge()
   const userHandle = crypto.getRandomValues(new Uint8Array(32))
+
+  // Fixed salt for PRF to ensure consistent key derivation (same as in authenticateWithPasskey)
+  const prfSalt = new TextEncoder().encode('TOTP-Authenticator-PRF-Salt-v1')
 
   const createOptions: CredentialCreationOptions = {
     publicKey: {
@@ -99,7 +80,11 @@ export async function createPasskey(username: string = 'TOTP User'): Promise<Pas
       timeout: 60000,
       attestation: 'none',
       extensions: {
-        prf: {}
+        prf: {
+          eval: {
+            first: prfSalt
+          }
+        }
       }
     },
   }
@@ -112,16 +97,25 @@ export async function createPasskey(username: string = 'TOTP User'): Promise<Pas
 
   const response = credential.response as AuthenticatorAttestationResponse
 
-  // Check if PRF extension is supported
+  // Check if PRF extension is supported and get results
   const prfResults = credential.getClientExtensionResults().prf
-  if (!prfResults?.enabled) {
+  if (!prfResults?.enabled || !prfResults.results?.first) {
     throw new Error('PRF extension is required but not supported by this authenticator. Please use a compatible device.')
   }
 
-  return {
+  // Get PRF-derived key material
+  const prfKey = prfResults.results.first
+  const keyMaterial = prfKey instanceof ArrayBuffer ? prfKey : prfKey.buffer.slice(prfKey.byteOffset, prfKey.byteOffset + prfKey.byteLength)
+
+  const credentialInfo: PasskeyCredential = {
     id: credential.id,
     publicKey: response.getPublicKey()!,
     userHandle: arrayBufferToBase64url(userHandle),
+  }
+
+  return {
+    credential: credentialInfo,
+    keyMaterial
   }
 }
 
@@ -162,8 +156,6 @@ export async function authenticateWithPasskey(credentialId?: string): Promise<Ar
   if (!credential) {
     throw new Error('Failed to authenticate with passkey')
   }
-
-  const response = credential.response as AuthenticatorAssertionResponse
 
   // Check if PRF extension is supported and get results
   const prfResults = credential.getClientExtensionResults().prf
@@ -219,7 +211,6 @@ export function storePasskeyCredential(credential: PasskeyCredential): void {
   localStorage.setItem('passkey-credential', JSON.stringify({
     id: credential.id,
     userHandle: credential.userHandle,
-    // Don't store the actual public key, just metadata
   }))
 }
 
@@ -236,14 +227,4 @@ export function getStoredPasskeyCredential(): { id: string; userHandle: string }
   } catch {
     return null
   }
-}
-
-
-
-/**
- * Check if user has a passkey set up
- * @returns {boolean} True if passkey is configured
- */
-export function hasPasskeySetup(): boolean {
-  return getStoredPasskeyCredential() !== null
 }
